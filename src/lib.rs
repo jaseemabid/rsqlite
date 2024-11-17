@@ -77,6 +77,10 @@ pub struct TableLeaf {
     // 🤔 Why isn't try default for Option<T>?
     db_header: Option<Header>, // DB Header is only present on first page
     page_header: BTreePageHeader,
+    #[br(count = page_header.num_cells)] // 🪄 This is NEAT!
+    // The cell pointer array consists of K 2-byte integer offsets to the cell
+    // contents.
+    cell_pointers: Vec<u16>,
 }
 
 /**
@@ -110,12 +114,20 @@ pub struct BTreePageHeader {
     pub right_most_pointer: Option<u32>,
 }
 
+/**
+ * A b-tree page is either an interior page or a leaf page.
+ */
 #[derive(BinRead, Debug, PartialEq)]
 #[br(repr(u8))]
 pub enum PageType {
+    // An interior page contains K keys together with K+1 pointers to child
+    // b-tree pages. A "pointer" in an interior b-tree page is just the 32-bit
+    // unsigned integer page number of the child page.
     InteriorIndex = 0x02,
     InteriorTable = 0x05,
+    // A leaf page contains keys ...
     LeafIndex = 0x0a,
+    // ... and in the case of a table b-tree each key  has associated data
     LeafTable = 0x0d,
 }
 
@@ -178,6 +190,7 @@ mod planets {
                     fragmented_free_bytes: 0,
                     right_most_pointer: None
                 },
+                cell_pointers: vec![3877]
             })
         );
     }
@@ -204,6 +217,7 @@ mod planets {
                     fragmented_free_bytes: 0,
                     right_most_pointer: None,
                 },
+                cell_pointers: vec![4063, 4032, 4001, 3970, 3937, 3905, 3871, 3836]
             })
         );
     }
