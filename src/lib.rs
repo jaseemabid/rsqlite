@@ -1,4 +1,7 @@
-use binrw::*;
+mod varint;
+
+use binrw::{io::SeekFrom, *};
+use varint::{varint, VarInt};
 
 /**
  * DB Header
@@ -73,14 +76,20 @@ pub enum Page {
 #[derive(BinRead, Debug, PartialEq)]
 #[br(big)]
 pub struct TableLeaf {
-    #[br(try)] // Don't fail if the header is missing, set to default value
-    // 🤔 Why isn't try default for Option<T>?
-    db_header: Option<Header>, // DB Header is only present on first page
+    #[br(try)]
+    pub db_header: Option<Header>, // DB Header is only present on first page
     page_header: BTreePageHeader,
-    #[br(count = page_header.num_cells)] // 🪄 This is NEAT!
-    // The cell pointer array consists of K 2-byte integer offsets to the cell
-    // contents.
+    // 🎉 It's really cool that previous values can be referred for count. binrw is awesome!
+    #[br(count = page_header.num_cells)]
+    // The cell pointer array is K 2-byte integer offsets to the cell contents.
     cell_pointers: Vec<u16>,
+    // [ Unallocated space ]
+    #[br(calc = *cell_pointers.last().unwrap())]
+    unallocated_: u16,
+    // 🔥 TODO: Fix seek offset, this should't have a 4096 in here.
+    #[br(seek_before = SeekFrom::Start(4096 + *cell_pointers.last().unwrap() as u64),
+         count = cell_pointers.len())]
+    cells: Vec<TableLeafCell>,
 }
 
 /**
@@ -129,6 +138,28 @@ pub enum PageType {
     LeafIndex = 0x0a,
     // ... and in the case of a table b-tree each key  has associated data
     LeafTable = 0x0d,
+}
+
+/**
+ * Leaf cell for a PageType::LeafTable
+ *
+ * Each cell has 4 regions in the following order.
+ *
+ * 1. A varint for the total number of bytes of payload, including any overflow
+ * 2. A varint which is the integer key, a.k.a. "rowid"
+ * 3. The initial portion of the payload that does not spill to overflow pages.
+ * 4. A 4-byte big-endian integer page number for the first page of the overflow
+ *    page list - omitted if all payload fits on the b-tree page.
+ */
+#[derive(BinRead, Debug, PartialEq)]
+#[br(big)]
+pub struct TableLeafCell {
+    #[br(parse_with = varint)]
+    pub size: VarInt,
+    #[br(parse_with = varint)]
+    pub row_id: VarInt,
+    #[br(count = size)] // 🪄 This is NEAT!
+    pub payload: Vec<u8>,
 }
 
 #[cfg(test)]
@@ -190,7 +221,13 @@ mod planets {
                     fragmented_free_bytes: 0,
                     right_most_pointer: None
                 },
-                cell_pointers: vec![3877]
+                cell_pointers: vec![3877],
+                unallocated_: 3877,
+                cells: vec![TableLeafCell {
+                    size: 3,
+                    row_id: 5,
+                    payload: vec![1, 85, 114]
+                }]
             })
         );
     }
@@ -217,7 +254,74 @@ mod planets {
                     fragmented_free_bytes: 0,
                     right_most_pointer: None,
                 },
-                cell_pointers: vec![4063, 4032, 4001, 3970, 3937, 3905, 3871, 3836]
+                cell_pointers: vec![4063, 4032, 4001, 3970, 3937, 3905, 3871, 3836],
+                unallocated_: 3836,
+                cells: vec![
+                    TableLeafCell {
+                        size: 33,
+                        row_id: 8,
+                        payload: vec![
+                            7, 0, 27, 31, 3, 5, 1, 78, 101, 112, 116, 117, 110, 101, 73, 99, 101,
+                            32, 71, 105, 97, 110, 116, 0, 192, 92, 0, 1, 11, 236, 65, 192, 14
+                        ]
+                    },
+                    TableLeafCell {
+                        size: 32,
+                        row_id: 7,
+                        payload: vec![
+                            7, 0, 25, 31, 3, 5, 1, 85, 114, 97, 110, 117, 115, 73, 99, 101, 32, 71,
+                            105, 97, 110, 116, 0, 198, 36, 0, 0, 171, 31, 251, 192, 27
+                        ]
+                    },
+                    TableLeafCell {
+                        size: 30,
+                        row_id: 6,
+                        payload: vec![
+                            7, 0, 25, 31, 3, 4, 1, 83, 97, 116, 117, 114, 110, 71, 97, 115, 32, 71,
+                            105, 97, 110, 116, 1, 198, 236, 85, 105, 216, 64, 83
+                        ]
+                    },
+                    TableLeafCell {
+                        size: 31,
+                        row_id: 5,
+                        payload: vec![
+                            7, 0, 27, 31, 3, 4, 1, 74, 117, 112, 105, 116, 101, 114, 71, 97, 115,
+                            32, 71, 105, 97, 110, 116, 2, 34, 44, 46, 102, 247, 160, 79
+                        ]
+                    },
+                    TableLeafCell {
+                        size: 29,
+                        row_id: 4,
+                        payload: vec![
+                            7, 0, 21, 35, 2, 4, 1, 77, 97, 114, 115, 84, 101, 114, 114, 101, 115,
+                            116, 114, 105, 97, 108, 26, 123, 13, 149, 122, 96, 2
+                        ]
+                    },
+                    TableLeafCell {
+                        size: 29,
+                        row_id: 3,
+                        payload: vec![
+                            7, 0, 23, 35, 2, 4, 9, 69, 97, 114, 116, 104, 84, 101, 114, 114, 101,
+                            115, 116, 114, 105, 97, 108, 49, 198, 8, 234, 183, 0
+                        ]
+                    },
+                    TableLeafCell {
+                        size: 29,
+                        row_id: 2,
+                        payload: vec![
+                            7, 0, 23, 35, 2, 4, 8, 86, 101, 110, 117, 115, 84, 101, 114, 114, 101,
+                            115, 116, 114, 105, 97, 108, 47, 72, 6, 115, 0, 64
+                        ]
+                    },
+                    TableLeafCell {
+                        size: 31,
+                        row_id: 1,
+                        payload: vec![
+                            7, 0, 27, 35, 2, 4, 8, 77, 101, 114, 99, 117, 114, 121, 84, 101, 114,
+                            114, 101, 115, 116, 114, 105, 97, 108, 19, 15, 3, 115, 162, 240
+                        ]
+                    }
+                ]
             })
         );
     }
