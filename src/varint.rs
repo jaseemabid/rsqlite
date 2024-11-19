@@ -3,7 +3,11 @@ use binrw::BinResult;
 /**
  * Variable length integers
  */
-pub type VarInt = usize;
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VarInt {
+    pub value: usize,
+    pub width: u8,
+}
 
 /// A custom parser for VarInt
 #[binrw::parser(reader)]
@@ -12,6 +16,7 @@ pub fn varint() -> BinResult<VarInt> {
 
     let mut value: usize = 0;
     for i in 0..9 {
+        let width = i + 1;
         let byte = {
             let mut buf = [0u8; 1];
             reader.read_exact(&mut buf)?;
@@ -22,12 +27,15 @@ pub fn varint() -> BinResult<VarInt> {
 
         // If the high-order bit is clear, we've reached the end of the varint.
         if byte & 0x80 == 0 {
-            return Ok(value);
+            return Ok(VarInt { value, width });
         }
 
         // If this is the 9th byte, include all 8 bits.
         if i == 8 {
-            return Ok((value << 8) | (byte as usize));
+            return Ok(VarInt {
+                value: (value << 8) | (byte as usize),
+                width,
+            });
         }
     }
 
