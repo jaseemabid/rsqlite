@@ -1,7 +1,7 @@
 mod varint;
 
 use binrw::{io::SeekFrom, *};
-use varint::{varint, VarInt};
+use varint::VarInt;
 
 /**
  * DB Header
@@ -154,9 +154,7 @@ pub enum PageType {
 #[derive(BinRead, Debug, PartialEq)]
 #[br(big)]
 pub struct TableLeafCell {
-    #[br(parse_with = varint)]
     pub size: VarInt,
-    #[br(parse_with = varint)]
     pub row_id: VarInt,
     #[br(args { leaf_size: size })]
     pub payload: Record,
@@ -174,7 +172,6 @@ pub struct Record {
     /// The header begins with a single varint which determines the total number
     /// of bytes in the header. The varint value is the size of the header in
     /// bytes including the size varint itself.
-    #[br(parse_with=varint)]
     pub size: VarInt,
 
     /// Following the size varint are one or more additional varints, one per
@@ -182,7 +179,7 @@ pub struct Record {
     /// determine the datatype of each column
     // TODO: This should be a varint, not u8
     // WARN: There is an extra null byte as the first column and I'm really not sure why.
-    #[br(count = size.value - (size.width as usize))]
+    #[br(count = size.value - (size.width as u64))]
     pub columns: Vec<u8>,
 
     #[br(count = leaf_size.value - size.value)]
