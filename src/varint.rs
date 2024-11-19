@@ -4,8 +4,17 @@ use std::io::{Read, Seek};
 /// Variable length u64 integers
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VarInt {
+    /// Value of varint
     pub value: u64,
-    pub width: u8,
+    /// Number of bytes required to encode the value
+    pub width: u64,
+}
+
+impl VarInt {
+    pub fn new(value: u64) -> Self {
+        assert!(value < 128);
+        VarInt { value, width: 1 }
+    }
 }
 
 /// A custom parser for VarInt

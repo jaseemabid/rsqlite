@@ -168,6 +168,11 @@ pub struct TableLeafCell {
 
 #[derive(BinRead, Debug, PartialEq)]
 #[br(big, import { leaf_size: VarInt })]
+// If this ever happens, that's due to `Vec<VarInt>` reading more than it should
+#[br(assert(columns.iter().map(|vi| vi.width).sum::<u64>() == size.value - (size.width),
+    "Expected sum of column widths: {} != actual width {}",
+    columns.iter().map(|vi| vi.width).sum::<u64>(),
+    size.value - (size.width)))]
 pub struct Record {
     /// The header begins with a single varint which determines the total number
     /// of bytes in the header. The varint value is the size of the header in
@@ -179,8 +184,8 @@ pub struct Record {
     /// determine the datatype of each column
     // TODO: This should be a varint, not u8
     // WARN: There is an extra null byte as the first column and I'm really not sure why.
-    #[br(count = size.value - (size.width as u64))]
-    pub columns: Vec<u8>,
+    #[br(count = size.value - size.width)]
+    pub columns: Vec<VarInt>,
 
     #[br(count = leaf_size.value - size.value)]
     pub payload: Vec<u8>,
@@ -290,8 +295,14 @@ mod planets {
                     row_id: VarInt { value: 8, width: 1 },
                     payload: Record {
                         size: VarInt { value: 7, width: 1 },
-                        // 🤔 Why is this 0 here?
-                        columns: vec![0, 27, 31, 3, 5, 1],
+                        columns: vec![
+                            VarInt::new(0), // 🔥 This null byte here is a mystery
+                            VarInt::new(27),
+                            VarInt::new(31),
+                            VarInt::new(3),
+                            VarInt::new(5),
+                            VarInt::new(1),
+                        ],
                         payload: vec![
                             78, 101, 112, 116, 117, 110, 101, 73, 99, 101, 32, 71, 105, 97, 110,
                             116, 0, 192, 92, 0, 1, 11, 236, 65, 192, 14
