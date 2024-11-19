@@ -10,6 +10,11 @@ pub struct VarInt {
 }
 
 /// A custom parser for VarInt
+///
+// TODO: endian is ignored; and it shouldn't be
+// TODO: How do I automatically use varint for VarInt without duplicating with a
+//       `parse_with` pragma?
+// TODO: I think this really should be a `impl BinRead for Varint {}`
 #[binrw::parser(reader)]
 pub fn varint() -> BinResult<VarInt> {
     // let what = <_>::read_options(reader, endian, ());
