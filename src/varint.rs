@@ -1,4 +1,4 @@
-use binrw::{BinRead, BinResult, Endian};
+use binrw::{BinRead, BinResult as Result, Endian};
 use std::io::{Read, Seek};
 
 /// Variable length u64 integers
@@ -23,11 +23,7 @@ impl VarInt {
 impl BinRead for VarInt {
     type Args<'a> = ();
 
-    fn read_options<R: Read + Seek>(
-        reader: &mut R,
-        _endian: Endian,
-        _args: Self::Args<'_>,
-    ) -> BinResult<Self> {
+    fn read_options<R: Read + Seek>(reader: &mut R, _: Endian, _: Self::Args<'_>) -> Result<Self> {
         let mut value: u64 = 0;
         for i in 0..9 {
             let width = i + 1;
