@@ -1,6 +1,7 @@
 mod varint;
 
 use binrw::{io::SeekFrom, *};
+use io::{Read, Seek};
 use varint::VarInt;
 
 /**
@@ -168,11 +169,6 @@ pub struct TableLeafCell {
 
 #[derive(BinRead, Debug, PartialEq)]
 #[br(big, import { leaf_size: VarInt })]
-// If this ever happens, that's due to `Vec<VarInt>` reading more than it should
-#[br(assert(columns.iter().map(|vi| vi.width).sum::<u64>() == size.value - (size.width),
-    "Expected sum of column widths: {} != actual width {}",
-    columns.iter().map(|vi| vi.width).sum::<u64>(),
-    size.value - (size.width)))]
 pub struct Record {
     /// The header begins with a single varint which determines the total number
     /// of bytes in the header. The varint value is the size of the header in
@@ -182,13 +178,67 @@ pub struct Record {
     /// Following the size varint are one or more additional varints, one per
     /// column. These additional varints are called "serial type" numbers and
     /// determine the datatype of each column
-    // TODO: This should be a varint, not u8
     // WARN: There is an extra null byte as the first column and I'm really not sure why.
+    // TODO: Make sure that the total bytes read here matches header size
     #[br(count = size.value - size.width)]
-    pub columns: Vec<VarInt>,
+    pub columns: Vec<SerialType>,
 
     #[br(count = leaf_size.value - size.value)]
     pub payload: Vec<u8>,
+}
+
+/**
+ * Serial types for parsing cell contents
+ *
+ * Types are described [here](https://www.sqlite.org/fileformat2.html#record_format)
+ *
+ * - 0-9 maps the first constants
+ * - 10,11 are reserved
+ * - N > 12 and even for blobs
+ * - N > 13 and odd for strings
+ */
+#[derive(Debug, PartialEq)]
+pub enum SerialType {
+    Null,
+    I8,
+    I16,
+    I24,
+    I32,
+    I48,
+    I64,
+    Float,
+    Zero,
+    One,
+    Reserved,
+    String(u64),
+    Blob(u64),
+}
+
+impl BinRead for SerialType {
+    type Args<'a> = ();
+
+    fn read_options<R: Read + Seek>(r: &mut R, _: Endian, _: Self::Args<'_>) -> BinResult<Self> {
+        // TODO: Figure out how to pass `endian` through.
+        let magic = VarInt::read_be(r)?;
+
+        match magic.value {
+            0 => Ok(SerialType::Null),
+            1 => Ok(SerialType::I8),
+            2 => Ok(SerialType::I16),
+            3 => Ok(SerialType::I24),
+            4 => Ok(SerialType::I32),
+            5 => Ok(SerialType::I48),
+            6 => Ok(SerialType::I64),
+            7 => Ok(SerialType::Float),
+            8 => Ok(SerialType::Zero),
+            9 => Ok(SerialType::One),
+            10 | 11 => Ok(SerialType::Reserved),
+            // Even: Blob with (N-12)/2 bytes
+            m if m % 2 == 0 => Ok(SerialType::Blob((m - 12) / 2)),
+            // Odd: String with (N-13)/2 bytes
+            m => Ok(SerialType::String((m - 13) / 2)),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -226,9 +276,7 @@ mod planets {
     #[test]
     fn test_db_header() {
         let mut file = File::open("data/planets.db").expect("Failed to open planets.db");
-        let header: Header = file
-            .read_be()
-            .expect("Failed to read db header at start of file");
+        let header: Header = file.read_be().expect("Failed to read db header at start of file");
 
         assert_eq!(header, DB_HEADER);
     }
@@ -296,16 +344,16 @@ mod planets {
                     payload: Record {
                         size: VarInt { value: 7, width: 1 },
                         columns: vec![
-                            VarInt::new(0), // 🔥 This null byte here is a mystery
-                            VarInt::new(27),
-                            VarInt::new(31),
-                            VarInt::new(3),
-                            VarInt::new(5),
-                            VarInt::new(1),
+                            SerialType::Null, // 🔥 This null byte here is a mystery
+                            SerialType::String(7),
+                            SerialType::String(9),
+                            SerialType::I24,
+                            SerialType::I48,
+                            SerialType::I8
                         ],
                         payload: vec![
-                            78, 101, 112, 116, 117, 110, 101, 73, 99, 101, 32, 71, 105, 97, 110,
-                            116, 0, 192, 92, 0, 1, 11, 236, 65, 192, 14
+                            78, 101, 112, 116, 117, 110, 101, 73, 99, 101, 32, 71, 105, 97, 110, 116, 0, 192, 92, 0, 1,
+                            11, 236, 65, 192, 14
                         ],
                     }
                 },]
