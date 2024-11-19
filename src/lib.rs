@@ -1,6 +1,6 @@
 mod varint;
 
-use binrw::{io::SeekFrom, *};
+use binrw::{helpers::args_iter_with, io::SeekFrom, *};
 use io::{Read, Seek};
 use varint::VarInt;
 
@@ -89,7 +89,7 @@ pub struct TableLeaf {
     unallocated_: u16,
     // 🔥 TODO: Fix seek offset, this should't have a 4096 in here.
     #[br(seek_before = SeekFrom::Start(4096 + *cell_pointers.last().unwrap() as u64),
-         count = 1 /*cell_pointers.len()) */ )] // TODO: Parse all cells, not just one
+         count = cell_pointers.len())] // TODO: Parse all cells, not just one
     cells: Vec<TableLeafCell>,
 }
 
@@ -157,7 +157,6 @@ pub enum PageType {
 pub struct TableLeafCell {
     pub size: VarInt,
     pub row_id: VarInt,
-    #[br(args { leaf_size: size })]
     pub payload: Record,
 }
 
@@ -168,7 +167,7 @@ pub struct TableLeafCell {
  */
 
 #[derive(BinRead, Debug, PartialEq)]
-#[br(big, import { leaf_size: VarInt })]
+#[br(big)]
 pub struct Record {
     /// The header begins with a single varint which determines the total number
     /// of bytes in the header. The varint value is the size of the header in
@@ -183,8 +182,11 @@ pub struct Record {
     #[br(count = size.value - size.width)]
     pub columns: Vec<SerialType>,
 
-    #[br(count = leaf_size.value - size.value)]
-    pub payload: Vec<u8>,
+    /// Payload cells, based on types inferred from the `columns`
+    #[br(parse_with = args_iter_with(&columns, |reader, options, kind| {
+        SerialValue::read_options(reader, options, *kind)
+    }))]
+    pub payload: Vec<SerialValue>,
 }
 
 /**
@@ -197,7 +199,7 @@ pub struct Record {
  * - N > 12 and even for blobs
  * - N > 13 and odd for strings
  */
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum SerialType {
     Null,
     I8,
@@ -210,8 +212,18 @@ pub enum SerialType {
     Zero,
     One,
     Reserved,
-    String(u64),
-    Blob(u64),
+    String(usize),
+    Blob(usize),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum SerialValue {
+    Null,
+    Number(i64),
+    Float(f64),
+    Reserved,
+    String(String),
+    Blob(Vec<u8>),
 }
 
 impl BinRead for SerialType {
@@ -221,7 +233,7 @@ impl BinRead for SerialType {
         // TODO: Figure out how to pass `endian` through.
         let magic = VarInt::read_be(r)?;
 
-        match magic.value {
+        match usize::try_from(magic.value).unwrap() {
             0 => Ok(SerialType::Null),
             1 => Ok(SerialType::I8),
             2 => Ok(SerialType::I16),
@@ -241,9 +253,87 @@ impl BinRead for SerialType {
     }
 }
 
+impl BinRead for SerialValue {
+    type Args<'a> = SerialType;
+
+    fn read_options<R: Read + Seek>(r: &mut R, _: Endian, serial_type: Self::Args<'_>) -> BinResult<Self> {
+        use crate::{SerialType as T, SerialValue as V};
+
+        match serial_type {
+            T::Null => Ok(V::Null),
+            T::I8 => Ok(V::Number(i8::read_be(r)?.into())),
+            T::I16 => Ok(V::Number(i16::read_be(r)?.into())),
+            T::I24 => Ok(V::Number(read_u24_be(r)?.into())),
+            T::I32 => Ok(V::Number(i32::read_be(r)?.into())),
+            T::I48 => Ok(V::Number(read_i48_be(r)?)),
+            T::I64 => Ok(V::Number(i64::read_be(r)?)),
+            T::Float => Ok(V::Float(f64::read_be(r)?)),
+            T::Zero => Ok(V::Number(0)),
+            T::One => Ok(V::Number(1)),
+            T::Reserved => Ok(V::Reserved),
+            T::String(n) => {
+                let mut buf = vec![0; n];
+                r.read_exact(&mut buf)?;
+                let str = String::from_utf8(buf).map_err(|err| binrw::Error::Custom {
+                    pos: r.stream_position().unwrap_or_default(),
+                    err: Box::new(format!("Invalid String: {err}")),
+                })?;
+                Ok(V::String(str))
+            }
+            T::Blob(n) => {
+                let mut buf = vec![0; n];
+                r.read_exact(&mut buf)?;
+                Ok(V::Blob(buf))
+            }
+        }
+    }
+}
+
+// * Helper functions and Traits * //
+
+fn read_u24_be<R: Read>(r: &mut R) -> BinResult<u32> {
+    let mut buf = [0u8; 3];
+    r.read_exact(&mut buf)?;
+    Ok(u32::from_be_bytes([0, buf[0], buf[1], buf[2]]))
+}
+
+fn read_i48_be<R: Read>(r: &mut R) -> BinResult<i64> {
+    let mut buf = [0u8; 6];
+    r.read_exact(&mut buf)?;
+    Ok(i64::from_be_bytes([
+        0, 0, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5],
+    ]))
+}
+
+impl From<&str> for SerialValue {
+    fn from(value: &str) -> Self {
+        SerialValue::String(value.to_string())
+    }
+}
+
+impl From<i64> for SerialValue {
+    fn from(value: i64) -> Self {
+        SerialValue::Number(value)
+    }
+}
+
+impl From<Vec<u8>> for SerialValue {
+    fn from(value: Vec<u8>) -> Self {
+        SerialValue::Blob(value)
+    }
+}
+
+impl From<()> for SerialValue {
+    fn from(_: ()) -> Self {
+        SerialValue::Null
+    }
+}
+
+// * Tests * //
+
 #[cfg(test)]
 mod planets {
-    use super::*;
+    use super::{SerialType as T, *};
     use io::Seek;
     use std::fs::File;
 
@@ -282,7 +372,7 @@ mod planets {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "The 4096 + offset business is wrong, fix it first"]
     fn test_btree_page_1() {
         let mut file = File::open("data/planets.db").expect("Failed to open planets.db");
         let page: Page = file.read_be().expect("Failed to parse 1st page");
@@ -302,10 +392,10 @@ mod planets {
                 cell_pointers: vec![3877],
                 unallocated_: 3877,
                 cells: vec![TableLeafCell {
-                    size: VarInt { value: 3, width: 1 },
-                    row_id: VarInt { value: 5, width: 1 },
+                    size: VarInt::new(3),
+                    row_id: VarInt::new(5),
                     payload: Record {
-                        size: VarInt { value: 5, width: 1 },
+                        size: VarInt::new(5),
                         columns: vec![],
                         payload: vec![]
                     },
@@ -338,25 +428,144 @@ mod planets {
                 },
                 cell_pointers: vec![4063, 4032, 4001, 3970, 3937, 3905, 3871, 3836],
                 unallocated_: 3836,
-                cells: vec![TableLeafCell {
-                    size: VarInt { value: 33, width: 1 },
-                    row_id: VarInt { value: 8, width: 1 },
-                    payload: Record {
-                        size: VarInt { value: 7, width: 1 },
-                        columns: vec![
-                            SerialType::Null, // 🔥 This null byte here is a mystery
-                            SerialType::String(7),
-                            SerialType::String(9),
-                            SerialType::I24,
-                            SerialType::I48,
-                            SerialType::I8
-                        ],
-                        payload: vec![
-                            78, 101, 112, 116, 117, 110, 101, 73, 99, 101, 32, 71, 105, 97, 110, 116, 0, 192, 92, 0, 1,
-                            11, 236, 65, 192, 14
-                        ],
+                // TODO: 🔥 This null byte at the start of column is a mystery
+                cells: vec![
+                    TableLeafCell {
+                        size: VarInt::new(33),
+                        row_id: VarInt::new(8),
+                        payload: Record {
+                            size: VarInt::new(7),
+                            columns: vec![
+                                SerialType::Null,
+                                SerialType::String(7),
+                                SerialType::String(9),
+                                SerialType::I24,
+                                SerialType::I48,
+                                SerialType::I8
+                            ],
+                            payload: vec![
+                                ().into(),
+                                "Neptune".into(),
+                                "Ice Giant".into(),
+                                49244.into(),
+                                4495000000.into(),
+                                14.into()
+                            ]
+                        }
+                    },
+                    TableLeafCell {
+                        size: VarInt::new(32),
+                        row_id: VarInt::new(7),
+                        payload: Record {
+                            size: VarInt::new(7),
+                            columns: vec![T::Null, T::String(6), T::String(9), T::I24, T::I48, T::I8],
+                            payload: vec![
+                                ().into(),
+                                "Uranus".into(),
+                                "Ice Giant".into(),
+                                50724.into(),
+                                2871000000.into(),
+                                27.into()
+                            ]
+                        }
+                    },
+                    TableLeafCell {
+                        size: VarInt::new(30),
+                        row_id: VarInt::new(6),
+                        payload: Record {
+                            size: VarInt::new(7),
+                            columns: vec![T::Null, T::String(6), T::String(9), T::I24, T::I32, T::I8],
+                            payload: vec![
+                                ().into(),
+                                "Saturn".into(),
+                                "Gas Giant".into(),
+                                116460.into(),
+                                1433000000.into(),
+                                83.into()
+                            ]
+                        }
+                    },
+                    TableLeafCell {
+                        size: VarInt::new(31),
+                        row_id: VarInt::new(5),
+                        payload: Record {
+                            size: VarInt::new(7),
+                            columns: vec![T::Null, T::String(7), T::String(9), T::I24, T::I32, T::I8],
+                            payload: vec![
+                                ().into(),
+                                "Jupiter".into(),
+                                "Gas Giant".into(),
+                                139820.into(),
+                                778500000.into(),
+                                79.into()
+                            ]
+                        }
+                    },
+                    TableLeafCell {
+                        size: VarInt::new(29),
+                        row_id: VarInt::new(4),
+                        payload: Record {
+                            size: VarInt::new(7),
+                            columns: vec![T::Null, T::String(4), T::String(11), T::I16, T::I32, T::I8],
+                            payload: vec![
+                                ().into(),
+                                "Mars".into(),
+                                "Terrestrial".into(),
+                                6779.into(),
+                                227900000.into(),
+                                2.into()
+                            ]
+                        }
+                    },
+                    TableLeafCell {
+                        size: VarInt::new(29),
+                        row_id: VarInt::new(3),
+                        payload: Record {
+                            size: VarInt::new(7),
+                            columns: vec![T::Null, T::String(5), T::String(11), T::I16, T::I32, T::One],
+                            payload: vec![
+                                ().into(),
+                                "Earth".into(),
+                                "Terrestrial".into(),
+                                12742.into(),
+                                149600000.into(),
+                                1.into()
+                            ]
+                        }
+                    },
+                    TableLeafCell {
+                        size: VarInt::new(29),
+                        row_id: VarInt::new(2),
+                        payload: Record {
+                            size: VarInt::new(7),
+                            columns: vec![T::Null, T::String(5), T::String(11), T::I16, T::I32, T::Zero],
+                            payload: vec![
+                                ().into(),
+                                "Venus".into(),
+                                "Terrestrial".into(),
+                                12104.into(),
+                                108200000.into(),
+                                0.into()
+                            ]
+                        }
+                    },
+                    TableLeafCell {
+                        size: VarInt::new(31),
+                        row_id: VarInt::new(1),
+                        payload: Record {
+                            size: VarInt::new(7),
+                            columns: vec![T::Null, T::String(7), T::String(11), T::I16, T::I32, T::Zero],
+                            payload: vec![
+                                ().into(),
+                                "Mercury".into(),
+                                "Terrestrial".into(),
+                                4879.into(),
+                                57910000.into(),
+                                0.into()
+                            ]
+                        }
                     }
-                },]
+                ]
             })
         );
     }
