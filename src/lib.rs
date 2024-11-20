@@ -1,3 +1,4 @@
+mod pretty;
 mod varint;
 
 use binrw::{helpers::args_iter_with, io::SeekFrom, *};
