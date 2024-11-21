@@ -70,7 +70,7 @@ impl fmt::Display for Page {
                 writeln!(f, "cell pointers:           {:?}", leaf.cell_pointers)?;
                 writeln!(f, "cells:")?;
                 for (i, cell) in leaf.cells.iter().enumerate() {
-                    writeln!(f, "  [{}] row_id:{} {:?}", i, cell.row_id.value, cell.payload.payload)?;
+                    writeln!(f, "  [{}] row_id:{} {:?}", i, cell.row_id.value, cell.record.payload)?;
                 }
 
                 Ok(())

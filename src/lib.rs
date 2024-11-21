@@ -2,7 +2,7 @@ mod pretty;
 mod varint;
 
 use binrw::{file_ptr::parse_from_iter, helpers::args_iter_with, io::SeekFrom, *};
-use io::{Read, Seek};
+use std::io::{Cursor, Read, Seek};
 use varint::VarInt;
 
 /**
@@ -152,9 +152,10 @@ pub enum PageType {
 }
 
 /**
- * Leaf cell for a PageType::LeafTable
+ * Leaf cell for a `PageType::LeafTable`
  *
- * Each cell has 4 regions in the following order.
+ * A cell represents a row in the database. Each cell has 4 regions in the
+ * following order.
  *
  * 1. A varint for the total number of bytes of payload, including any overflow
  * 2. A varint which is the integer key, a.k.a. "rowid"
@@ -167,11 +168,11 @@ pub enum PageType {
 pub struct TableLeafCell {
     pub size: VarInt,
     pub row_id: VarInt,
-    pub payload: Record,
+    pub record: Record,
 }
 
 /**
- * Sqlite Record holds a header and series of `(type, value)` pairs.
+ * A Record holds the contents of a row along with type info.
  *
  * [See schema layer docs](https://www.sqlite.org/fileformat2.html#schema_layer) for more info.
  */
@@ -182,20 +183,28 @@ pub struct Record {
     /// The header begins with a single varint which determines the total number
     /// of bytes in the header. The varint value is the size of the header in
     /// bytes including the size varint itself.
-    pub size: VarInt,
+    pub header_size: VarInt,
 
     /// Following the size varint are one or more additional varints, one per
     /// column. These additional varints are called "serial type" numbers and
     /// determine the datatype of each column
-    // WARN: There is an extra null byte as the first column and I'm really not sure why.
-    // TODO: Make sure that the total bytes read here matches header size
-    #[br(count = size.value - size.width)]
+    // There is a lot going on here!
+    //   1. Since the size of SerialType is variadic, you can't tell upfront how
+    //      many of them will be parsed here.
+    //   2. So read the expected number of bytes first into a buffer
+    //   3. Parse this temp buffer till it is exhausted.
+    //   4. Varints make this code far trickier, could have been a trivial
+    //      (count=N) with fixed size numbers
+    #[br(count = header_size.value - header_size.width,
+        map = |buffer: Vec<u8>| -> Vec<SerialType> {
+            let mut cursor = Cursor::new(buffer);
+            std::iter::from_fn(|| cursor.read_be().ok()).collect()
+        })]
     pub columns: Vec<SerialType>,
 
     /// Payload cells, based on types inferred from the `columns`
-    #[br(parse_with = args_iter_with(&columns, |reader, options, kind| {
-        SerialValue::read_options(reader, options, *kind)
-    }))]
+    #[br(parse_with = args_iter_with(&columns, |reader, options, kind|
+            SerialValue::read_options(reader, options, *kind)))]
     pub payload: Vec<SerialValue>,
 }
 
@@ -343,10 +352,10 @@ impl From<()> for SerialValue {
 
 #[cfg(test)]
 mod planets {
-    use super::{SerialType as T, SerialValue as V, *};
-    use io::Seek;
+    use super::{SerialType as T, *};
+    use binrw::BinReaderExt;
     use pretty_assertions::assert_eq;
-    use std::fs::File;
+    use std::{borrow::Borrow, fs::File, io::Seek};
 
     // $ sqlite3 data/planets.db .dbinfo
     const DB_HEADER: Header = Header {
@@ -387,21 +396,27 @@ mod planets {
         let mut file = File::open("data/planets.db").expect("Failed to open planets.db");
         let page: Page = file.read_be().expect("Failed to parse 1st page");
 
-        // TODO: 🔥 This is obviously wrong, but reasonably close to the final
-        // result, so leaving the broken test here iterate with.
+        /*
+        # Schema table
+        https://www.sqlite.org/fileformat2.html#storage_of_the_sql_database_schema
 
-        let q1 = "REATE TABLE planets (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL,
-    diameter INTEGER NOT NULL,
-    distance INTEGER NOT NULL,
-    moons INTEGER NOT NULL\n)\r"
-            .into();
-        let q2 = vec![
-            0, 0, 0, 8, 14, 252, 0, 15, 223, 15, 192, 15, 161, 15, 130, 15, 97, 15, 65, 15, 31, 14, 252, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
+        Page 1 of a database file is the root page of a table b-tree that holds
+        a special table named "sqlite_schema". This b-tree is known as the
+        "schema table" since it stores the complete database schema. The
+        structure of the sqlite_schema table is as if it had been created using
+        the following SQL:
+
+            CREATE TABLE sqlite_schema(
+                type text,
+                name text,
+                tbl_name text,
+                rootpage integer,
+                sql text
+            );
+         */
+
+        let sql_file = include_bytes!("../data/planets.sql");
+        let query = SerialValue::String(String::from_utf8_lossy(&sql_file[0..189]).into_owned());
 
         assert_eq!(
             page,
@@ -418,25 +433,11 @@ mod planets {
                 cell_pointers: vec![3877],
                 cells: vec![TableLeafCell {
                     size: VarInt { value: 216, width: 2 },
-                    row_id: VarInt { value: 1, width: 1 },
-                    payload: Record {
-                        size: VarInt { value: 7, width: 1 },
-                        columns: vec![
-                            T::String(5),
-                            T::String(7),
-                            T::String(7),
-                            T::I8,
-                            T::String(189),
-                            T::Blob(52)
-                        ],
-                        payload: vec![
-                            V::String("ablep".into()),
-                            V::String("lanetsp".into()),
-                            V::String("lanets\u{2}".into()),
-                            V::Number(67),
-                            V::String(q1),
-                            V::Blob(q2)
-                        ]
+                    row_id: VarInt::new(1),
+                    record: Record {
+                        header_size: VarInt::new(7),
+                        columns: vec![T::String(5), T::String(7), T::String(7), T::I8, T::String(189)],
+                        payload: vec!["table".into(), "planets".into(), "planets".into(), 2.into(), query]
                     }
                 }],
             })
@@ -466,15 +467,13 @@ mod planets {
                     right_most_pointer: None,
                 },
                 cell_pointers: vec![4063, 4032, 4001, 3970, 3937, 3905, 3871, 3836],
-                //unallocated_: 3836,
-                //padding: vec![0; 3836],
                 // TODO: 🔥 This null byte at the start of column is a mystery
                 cells: vec![
                     TableLeafCell {
                         size: VarInt::new(31),
                         row_id: VarInt::new(1),
-                        payload: Record {
-                            size: VarInt::new(7),
+                        record: Record {
+                            header_size: VarInt::new(7),
                             columns: vec![T::Null, T::String(7), T::String(11), T::I16, T::I32, T::Zero],
                             payload: vec![
                                 ().into(),
@@ -489,8 +488,8 @@ mod planets {
                     TableLeafCell {
                         size: VarInt::new(29),
                         row_id: VarInt::new(2),
-                        payload: Record {
-                            size: VarInt::new(7),
+                        record: Record {
+                            header_size: VarInt::new(7),
                             columns: vec![T::Null, T::String(5), T::String(11), T::I16, T::I32, T::Zero],
                             payload: vec![
                                 ().into(),
@@ -505,8 +504,8 @@ mod planets {
                     TableLeafCell {
                         size: VarInt::new(29),
                         row_id: VarInt::new(3),
-                        payload: Record {
-                            size: VarInt::new(7),
+                        record: Record {
+                            header_size: VarInt::new(7),
                             columns: vec![T::Null, T::String(5), T::String(11), T::I16, T::I32, T::One],
                             payload: vec![
                                 ().into(),
@@ -521,8 +520,8 @@ mod planets {
                     TableLeafCell {
                         size: VarInt::new(29),
                         row_id: VarInt::new(4),
-                        payload: Record {
-                            size: VarInt::new(7),
+                        record: Record {
+                            header_size: VarInt::new(7),
                             columns: vec![T::Null, T::String(4), T::String(11), T::I16, T::I32, T::I8],
                             payload: vec![
                                 ().into(),
@@ -537,8 +536,8 @@ mod planets {
                     TableLeafCell {
                         size: VarInt::new(31),
                         row_id: VarInt::new(5),
-                        payload: Record {
-                            size: VarInt::new(7),
+                        record: Record {
+                            header_size: VarInt::new(7),
                             columns: vec![T::Null, T::String(7), T::String(9), T::I24, T::I32, T::I8],
                             payload: vec![
                                 ().into(),
@@ -553,8 +552,8 @@ mod planets {
                     TableLeafCell {
                         size: VarInt::new(30),
                         row_id: VarInt::new(6),
-                        payload: Record {
-                            size: VarInt::new(7),
+                        record: Record {
+                            header_size: VarInt::new(7),
                             columns: vec![T::Null, T::String(6), T::String(9), T::I24, T::I32, T::I8],
                             payload: vec![
                                 ().into(),
@@ -569,8 +568,8 @@ mod planets {
                     TableLeafCell {
                         size: VarInt::new(32),
                         row_id: VarInt::new(7),
-                        payload: Record {
-                            size: VarInt::new(7),
+                        record: Record {
+                            header_size: VarInt::new(7),
                             columns: vec![T::Null, T::String(6), T::String(9), T::I24, T::I48, T::I8],
                             payload: vec![
                                 ().into(),
@@ -585,8 +584,8 @@ mod planets {
                     TableLeafCell {
                         size: VarInt::new(33),
                         row_id: VarInt::new(8),
-                        payload: Record {
-                            size: VarInt::new(7),
+                        record: Record {
+                            header_size: VarInt::new(7),
                             columns: vec![T::Null, T::String(7), T::String(9), T::I24, T::I48, T::I8],
                             payload: vec![
                                 ().into(),
