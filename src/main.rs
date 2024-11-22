@@ -1,9 +1,9 @@
 use binrw::BinRead;
-use rsqlite::{Header, Page};
+use rsqlite::{Database, Header};
 use std::{
     env,
     fs::File,
-    io::{BufReader, Seek, SeekFrom},
+    io::BufReader,
     process,
 };
 
@@ -32,20 +32,15 @@ fn main() {
                 process::exit(1);
             }
         },
-        ".dump" => {
-            // Seek ahead to 2nd page, which should be a btree leaf for planets.db
-            reader
-                .seek(SeekFrom::Start(4096))
-                .expect("Failed to seek to second page");
-
-            match Page::read_be(&mut reader) {
-                Ok(header) => println!("{}", header),
-                Err(err) => {
-                    eprintln!("Failed to read 2nd page: {}", err);
-                    process::exit(1);
-                }
+        // TODO: Dump the whole database for now, but replace with a properly
+        // formatted pretty printer.
+        ".dump" => match Database::read_be(&mut reader) {
+            Ok(db) => println!("{:#?}", db),
+            Err(err) => {
+                eprintln!("Failed to read 2nd page: {}", err);
+                process::exit(1);
             }
-        }
+        },
         _ => {
             eprintln!("Unknown command: {}", command);
             process::exit(1);
