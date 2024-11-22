@@ -1,4 +1,4 @@
-use crate::*;
+use crate::schema::*;
 use std::fmt;
 
 struct Indent(usize);

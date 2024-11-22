@@ -1,5 +1,5 @@
 use binrw::BinRead;
-use rsqlite::{pretty::HeaderDisplay, Database, Header};
+use rsqlite::{pretty::HeaderDisplay, schema::*};
 use std::{env, fs::File, io::BufReader, process};
 
 fn main() {
