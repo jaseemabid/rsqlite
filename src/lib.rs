@@ -12,8 +12,8 @@
 //! along with a [Record] containing ([SerialType], [SerialValue]) pairs holding
 //! data itself.
 
-mod pretty;
-mod varint;
+pub mod pretty;
+pub mod varint;
 
 use binrw::{file_ptr::parse_from_iter, helpers::args_iter_with, io::SeekFrom, *};
 use std::io::{Cursor, Read, Seek};
@@ -110,7 +110,7 @@ pub struct TableLeaf {
  * - [Docs](https://www.sqlite.org/fileformat.html#the_database_header)
  * - [SQLite Source](https://github.com/sqlite/sqlite/blob/e69b4d7/src/btreeInt.h#L45-L82)
  */
-#[derive(BinRead, Debug, PartialEq)]
+#[derive(BinRead, Copy, Clone, Debug, PartialEq)]
 #[br(big, magic = b"SQLite format 3\0")]
 pub struct Header {
     pub page_size: u16,            // Page size in bytes.  (1 means 65536)

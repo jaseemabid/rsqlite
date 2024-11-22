@@ -1,11 +1,6 @@
 use binrw::BinRead;
-use rsqlite::{Database, Header};
-use std::{
-    env,
-    fs::File,
-    io::BufReader,
-    process,
-};
+use rsqlite::{pretty::HeaderDisplay, Database, Header};
+use std::{env, fs::File, io::BufReader, process};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -26,7 +21,7 @@ fn main() {
 
     match command.as_str() {
         ".dbinfo" => match Header::read_be(&mut reader) {
-            Ok(header) => println!("{}", header),
+            Ok(header) => println!("{}", HeaderDisplay(header, 0)),
             Err(err) => {
                 eprintln!("Failed to read header: {}", err);
                 process::exit(1);
@@ -35,7 +30,7 @@ fn main() {
         // TODO: Dump the whole database for now, but replace with a properly
         // formatted pretty printer.
         ".dump" => match Database::read_be(&mut reader) {
-            Ok(db) => println!("{:#?}", db),
+            Ok(db) => println!("{}", db),
             Err(err) => {
                 eprintln!("Failed to read 2nd page: {}", err);
                 process::exit(1);
