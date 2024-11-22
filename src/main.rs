@@ -11,8 +11,6 @@ fn main() {
     }
 
     let (file_path, command) = (&args[1], &args[2]);
-
-    // Open the file
     let file = File::open(file_path).unwrap_or_else(|err| {
         eprintln!("Failed to open file {}: {}", file_path, err);
         process::exit(1);
@@ -27,12 +25,10 @@ fn main() {
                 process::exit(1);
             }
         },
-        // TODO: Dump the whole database for now, but replace with a properly
-        // formatted pretty printer.
         ".dump" => match Database::read_be(&mut reader) {
             Ok(db) => println!("{}", db),
             Err(err) => {
-                eprintln!("Failed to read 2nd page: {}", err);
+                eprintln!("Failed to read database: {}", err);
                 process::exit(1);
             }
         },
