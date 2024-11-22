@@ -1,3 +1,17 @@
+//! # A very naive SQLite database reader.
+//!
+//! A SQLite [Database] is a sequence of [Page]s. The first 100 bytes of the
+//! first [Page] contains a [Header] with global metadata.
+//!
+//! Each [Page] can be one of the 5 types, but only [TableLeaf] is implemented
+//! for now to handle the simplest databases. [TableLeaf] page starts with a
+//! [BTreePageHeader], followed by [TableLeaf::cell_pointers] pointing to
+//! [TableLeaf::cells] with actual data.
+//!
+//! [TableLeafCell] holds metadata like `row_id` and `size` for a database row,
+//! along with a [Record] containing ([SerialType], [SerialValue]) pairs holding
+//! data itself.
+
 mod pretty;
 mod varint;
 
@@ -5,56 +19,37 @@ use binrw::{file_ptr::parse_from_iter, helpers::args_iter_with, io::SeekFrom, *}
 use std::io::{Cursor, Read, Seek};
 use varint::VarInt;
 
-/**
- * DB Header
- *
- * https://www.sqlite.org/fileformat.html#the_database_header
- *
- * The first 100 bytes of the database file comprise the database file header.
- *
- * Source: https://github.com/sqlite/sqlite/blob/e69b4d7/src/btreeInt.h#L45-L82
- */
-
+/** A SQLite Database */
 #[derive(BinRead, Debug, PartialEq)]
-#[br(big, magic = b"SQLite format 3\0")]
-pub struct Header {
-    page_size: u16,            // Page size in bytes.  (1 means 65536)
-    write_format: u8,          // File format write version
-    read_format: u8,           // File format read version
-    reserved_bytes: u8,        // Bytes of unused space at the end of each page
-    max_payload_fraction: u8,  // Maximum embedded payload fraction
-    min_payload_fraction: u8,  // Minimum embedded payload fraction
-    leaf_payload_fraction: u8, // Min leaf payload fraction
-    file_change_counter: u32,  // File change counter
-    database_page_count: u32,  // Size of the database in pages
-    freelist_trunk_page: u32,  // First freelist page
-    freelist_page_count: u32,  // Number of freelist pages in file
-    schema_cookie: u32,        // Schema cookie
-    schema_format: u32,        // Schema format number
-    default_page_cache: u32,   // Default page cache size
-    autovacuum_top_root: u32,  // Largest root b-tree page when in auto-vacuum
-    text_encoding: u32,        // The database text encoding.
-    user_version: u32,         // User version
-    incremental_vacuum: u32,   // True (non-zero) for incremental-vacuum mode
-    application_id: u32,       // The "Application ID" set by PRAGMA application_id.
-    reserved: [u8; 20],        // Reserved for expansion. Must be zero.
-    // TODO: Unsure if this is equal to `data version`
-    version_valid_for: u32, // The version-valid-for number.
-    sqlite_version: u32,    // SQLITE_VERSION_NUMBER
+#[br(big)]
+pub struct Database {
+    /// A database starts with a header ...
+    pub db_header: Header,
+
+    /// ... followed by a number of pages.
+    // The header is part of first page, so start from the beginning again.
+    #[br(seek_before = SeekFrom::Start(0),
+         align_before = db_header.page_size,
+         count = db_header.database_page_count)]
+    pub pages: Vec<Page>,
 }
 
 /**
- * A page can be of 5 types:
+ * A page can be of 5 types as described
+ * [here](https://www.sqlite.org/fileformat2.html#pages), but only table leaf
+ * pages are implemented for now.
  *
  * 1. B tree page
- *      Table interior |  Table leaf  | Index interior | Index leaf
+ *      1. Table interior
+ *      2. Table leaf [TableLeaf] ⭐
+ *      3. Index interior
+ *      4. Index leaf
  * 2. Freelist page
- *      Trunk Page | Leaf Page
+ *      1. Trunk Page
+ *      2. Leaf Page
  * 3. Payload overflow page
  * 4. A pointer map page
  * 5. The lock-byte page
- *
- * https://www.sqlite.org/fileformat.html#pages
  */
 #[derive(BinRead, Debug, PartialEq)]
 #[br(big)]
@@ -65,16 +60,18 @@ pub enum Page {
 /**
  * A B tree table leaf page is divided into regions in the following order
  *
- * 1. The 100-byte database file header (found on page 1 only)
- * 2. The 8 or 12 byte b-tree page header
+ * 1. The 100-byte database file [Header] (found on page 1 only)
+ * 2. The 8 or 12 byte [b-tree page header][BTreePageHeader]
  * 3. The cell pointer array
  * 4. Unallocated space
  * 5. The cell content area
  * 6. The reserved region
  *
- * See more docs https://www.sqlite.org/fileformat.html#b_tree_pages
+ * See more [docs](https://www.sqlite.org/fileformat2.html#b_tree_pages)
+ *
+ * TODO: `#[binread]` instead of `#[derive(BinRead)]` breaks markdown docs on
+ * the type. Fix this upstream.
  */
-
 #[binread]
 #[br(big, stream = s)]
 #[derive(Debug, PartialEq)]
@@ -86,25 +83,62 @@ pub struct TableLeaf {
     #[br(temp, try_calc = s.stream_position())]
     _page_start: u64,
 
+    /// DB Header is only present on first page
     #[br(try)]
-    pub db_header: Option<Header>, // DB Header is only present on first page
+    pub db_header: Option<Header>,
 
-    page_header: BTreePageHeader,
+    /// Page header
+    pub page_header: BTreePageHeader,
+
     // 🎉 It's really cool that previous values can be referred for count. binrw is awesome!
     #[br(count = page_header.num_cells)]
-    // The cell pointer array is K 2-byte integer offsets to the cell contents.
-    cell_pointers: Vec<u16>,
 
-    // [ Unallocated space ]
+    /// The cell pointer array is K 2-byte integer offsets to the cell contents.
+    pub cell_pointers: Vec<u16>,
 
-    // Cells
+    /// [ Unallocated space ]
+
+    /// Cells with metadata + (type, value) pairs in a record
     #[br(parse_with = parse_from_iter(cell_pointers.iter().copied()),
-         seek_before(SeekFrom::Start(_page_start)))]
-    cells: Vec<TableLeafCell>,
+          seek_before(SeekFrom::Start(_page_start)))]
+    pub cells: Vec<TableLeafCell>,
 }
 
 /**
+ * The first 100 bytes of the database file comprise the database file header.
  *
+ * - [Docs](https://www.sqlite.org/fileformat.html#the_database_header)
+ * - [SQLite Source](https://github.com/sqlite/sqlite/blob/e69b4d7/src/btreeInt.h#L45-L82)
+ */
+#[derive(BinRead, Debug, PartialEq)]
+#[br(big, magic = b"SQLite format 3\0")]
+pub struct Header {
+    pub page_size: u16,            // Page size in bytes.  (1 means 65536)
+    pub write_format: u8,          // File format write version
+    pub read_format: u8,           // File format read version
+    pub reserved_bytes: u8,        // Bytes of unused space at the end of each page
+    pub max_payload_fraction: u8,  // Maximum embedded payload fraction
+    pub min_payload_fraction: u8,  // Minimum embedded payload fraction
+    pub leaf_payload_fraction: u8, // Min leaf payload fraction
+    pub file_change_counter: u32,  // File change counter
+    pub database_page_count: u32,  // Size of the database in pages
+    pub freelist_trunk_page: u32,  // First freelist page
+    pub freelist_page_count: u32,  // Number of freelist pages in file
+    pub schema_cookie: u32,        // Schema cookie
+    pub schema_format: u32,        // Schema format number
+    pub default_page_cache: u32,   // Default page cache size
+    pub autovacuum_top_root: u32,  // Largest root b-tree page when in auto-vacuum
+    pub text_encoding: u32,        // The database text encoding.
+    pub user_version: u32,         // User version
+    pub incremental_vacuum: u32,   // True (non-zero) for incremental-vacuum mode
+    pub application_id: u32,       // The "Application ID" set by PRAGMA application_id.
+    pub reserved: [u8; 20],        // Reserved for expansion. Must be zero.
+    // TODO: Unsure if this is equal to `data version`
+    pub version_valid_for: u32, // The version-valid-for number.
+    pub sqlite_version: u32,    // SQLITE_VERSION_NUMBER
+}
+
+/**
  * B tree Page Header Format
  *
  * | Offset | Size | Description                                                         |
@@ -152,13 +186,13 @@ pub enum PageType {
 }
 
 /**
- * Leaf cell for a `PageType::LeafTable`
+ * Leaf cell for a [PageType::LeafTable]
  *
  * A cell represents a row in the database. Each cell has 4 regions in the
  * following order.
  *
  * 1. A varint for the total number of bytes of payload, including any overflow
- * 2. A varint which is the integer key, a.k.a. "rowid"
+ * 2. A varint which is the integer key, a.k.a. `rowid`
  * 3. The initial portion of the payload that does not spill to overflow pages.
  * 4. A 4-byte big-endian integer page number for the first page of the overflow
  *    page list - omitted if all payload fits on the b-tree page.
@@ -176,7 +210,6 @@ pub struct TableLeafCell {
  *
  * [See schema layer docs](https://www.sqlite.org/fileformat2.html#schema_layer) for more info.
  */
-
 #[derive(BinRead, Debug, PartialEq)]
 #[br(big)]
 pub struct Record {
@@ -235,6 +268,9 @@ pub enum SerialType {
     Blob(usize),
 }
 
+/**
+ * Serial values holding table data.
+ */
 #[derive(Debug, PartialEq)]
 pub enum SerialValue {
     Null,
@@ -249,7 +285,7 @@ impl BinRead for SerialType {
     type Args<'a> = ();
 
     fn read_options<R: Read + Seek>(r: &mut R, _: Endian, _: Self::Args<'_>) -> BinResult<Self> {
-        // TODO: Figure out how to pass `endian` through.
+        // TODO: Figure out how to pass [endian] through.
         let magic = VarInt::read_be(r)?;
 
         match usize::try_from(magic.value).unwrap() {
@@ -355,7 +391,7 @@ mod planets {
     use super::{SerialType as T, *};
     use binrw::BinReaderExt;
     use pretty_assertions::assert_eq;
-    use std::{borrow::Borrow, fs::File, io::Seek};
+    use std::{fs::File, io::Seek};
 
     // $ sqlite3 data/planets.db .dbinfo
     const DB_HEADER: Header = Header {
@@ -384,15 +420,16 @@ mod planets {
     };
 
     #[test]
-    fn test_db_header() {
+    fn read_database() {
         let mut file = File::open("data/planets.db").expect("Failed to open planets.db");
-        let header: Header = file.read_be().expect("Failed to read db header at start of file");
+        let database: Database = file.read_be().expect("Failed to read db header at start of file");
 
-        assert_eq!(header, DB_HEADER);
+        assert_eq!(database.db_header, DB_HEADER);
+        assert_eq!(database.pages.len(), DB_HEADER.database_page_count as usize);
     }
 
     #[test]
-    fn test_btree_page_1() {
+    fn read_page_1() {
         let mut file = File::open("data/planets.db").expect("Failed to open planets.db");
         let page: Page = file.read_be().expect("Failed to parse 1st page");
 
@@ -445,7 +482,7 @@ mod planets {
     }
 
     #[test]
-    fn test_btree_page_2() {
+    fn read_page_2() {
         let mut file = File::open("data/planets.db").expect("Failed to open planets.db");
 
         // Seek ahead to 2nd page, which should be a btree leaf for planets.db
@@ -454,150 +491,156 @@ mod planets {
 
         let page: Page = file.read_be().expect("Failed to parse 2nd page");
 
+        let page_header = BTreePageHeader {
+            page_type: PageType::LeafTable,
+            first_freeblock: 0,
+            num_cells: 8,
+            cell_content_start: 3836,
+            fragmented_free_bytes: 0,
+            right_most_pointer: None,
+        };
+
+        let cell_pointers = vec![4063, 4032, 4001, 3970, 3937, 3905, 3871, 3836];
+
+        let cells = vec![
+            TableLeafCell {
+                size: VarInt::new(31),
+                row_id: VarInt::new(1),
+                record: Record {
+                    header_size: VarInt::new(7),
+                    // TODO: 🔥 This null byte at the start of column is a mystery
+                    columns: vec![T::Null, T::String(7), T::String(11), T::I16, T::I32, T::Zero],
+                    payload: vec![
+                        ().into(),
+                        "Mercury".into(),
+                        "Terrestrial".into(),
+                        4879.into(),
+                        57910000.into(),
+                        0.into(),
+                    ],
+                },
+            },
+            TableLeafCell {
+                size: VarInt::new(29),
+                row_id: VarInt::new(2),
+                record: Record {
+                    header_size: VarInt::new(7),
+                    columns: vec![T::Null, T::String(5), T::String(11), T::I16, T::I32, T::Zero],
+                    payload: vec![
+                        ().into(),
+                        "Venus".into(),
+                        "Terrestrial".into(),
+                        12104.into(),
+                        108200000.into(),
+                        0.into(),
+                    ],
+                },
+            },
+            TableLeafCell {
+                size: VarInt::new(29),
+                row_id: VarInt::new(3),
+                record: Record {
+                    header_size: VarInt::new(7),
+                    columns: vec![T::Null, T::String(5), T::String(11), T::I16, T::I32, T::One],
+                    payload: vec![
+                        ().into(),
+                        "Earth".into(),
+                        "Terrestrial".into(),
+                        12742.into(),
+                        149600000.into(),
+                        1.into(),
+                    ],
+                },
+            },
+            TableLeafCell {
+                size: VarInt::new(29),
+                row_id: VarInt::new(4),
+                record: Record {
+                    header_size: VarInt::new(7),
+                    columns: vec![T::Null, T::String(4), T::String(11), T::I16, T::I32, T::I8],
+                    payload: vec![
+                        ().into(),
+                        "Mars".into(),
+                        "Terrestrial".into(),
+                        6779.into(),
+                        227900000.into(),
+                        2.into(),
+                    ],
+                },
+            },
+            TableLeafCell {
+                size: VarInt::new(31),
+                row_id: VarInt::new(5),
+                record: Record {
+                    header_size: VarInt::new(7),
+                    columns: vec![T::Null, T::String(7), T::String(9), T::I24, T::I32, T::I8],
+                    payload: vec![
+                        ().into(),
+                        "Jupiter".into(),
+                        "Gas Giant".into(),
+                        139820.into(),
+                        778500000.into(),
+                        79.into(),
+                    ],
+                },
+            },
+            TableLeafCell {
+                size: VarInt::new(30),
+                row_id: VarInt::new(6),
+                record: Record {
+                    header_size: VarInt::new(7),
+                    columns: vec![T::Null, T::String(6), T::String(9), T::I24, T::I32, T::I8],
+                    payload: vec![
+                        ().into(),
+                        "Saturn".into(),
+                        "Gas Giant".into(),
+                        116460.into(),
+                        1433000000.into(),
+                        83.into(),
+                    ],
+                },
+            },
+            TableLeafCell {
+                size: VarInt::new(32),
+                row_id: VarInt::new(7),
+                record: Record {
+                    header_size: VarInt::new(7),
+                    columns: vec![T::Null, T::String(6), T::String(9), T::I24, T::I48, T::I8],
+                    payload: vec![
+                        ().into(),
+                        "Uranus".into(),
+                        "Ice Giant".into(),
+                        50724.into(),
+                        2871000000.into(),
+                        27.into(),
+                    ],
+                },
+            },
+            TableLeafCell {
+                size: VarInt::new(33),
+                row_id: VarInt::new(8),
+                record: Record {
+                    header_size: VarInt::new(7),
+                    columns: vec![T::Null, T::String(7), T::String(9), T::I24, T::I48, T::I8],
+                    payload: vec![
+                        ().into(),
+                        "Neptune".into(),
+                        "Ice Giant".into(),
+                        49244.into(),
+                        4495000000.into(),
+                        14.into(),
+                    ],
+                },
+            },
+        ];
+
         assert_eq!(
             page,
             Page::TableLeaf(TableLeaf {
                 db_header: None,
-                page_header: BTreePageHeader {
-                    page_type: PageType::LeafTable,
-                    first_freeblock: 0,
-                    num_cells: 8,
-                    cell_content_start: 3836,
-                    fragmented_free_bytes: 0,
-                    right_most_pointer: None,
-                },
-                cell_pointers: vec![4063, 4032, 4001, 3970, 3937, 3905, 3871, 3836],
-                // TODO: 🔥 This null byte at the start of column is a mystery
-                cells: vec![
-                    TableLeafCell {
-                        size: VarInt::new(31),
-                        row_id: VarInt::new(1),
-                        record: Record {
-                            header_size: VarInt::new(7),
-                            columns: vec![T::Null, T::String(7), T::String(11), T::I16, T::I32, T::Zero],
-                            payload: vec![
-                                ().into(),
-                                "Mercury".into(),
-                                "Terrestrial".into(),
-                                4879.into(),
-                                57910000.into(),
-                                0.into()
-                            ]
-                        }
-                    },
-                    TableLeafCell {
-                        size: VarInt::new(29),
-                        row_id: VarInt::new(2),
-                        record: Record {
-                            header_size: VarInt::new(7),
-                            columns: vec![T::Null, T::String(5), T::String(11), T::I16, T::I32, T::Zero],
-                            payload: vec![
-                                ().into(),
-                                "Venus".into(),
-                                "Terrestrial".into(),
-                                12104.into(),
-                                108200000.into(),
-                                0.into()
-                            ]
-                        }
-                    },
-                    TableLeafCell {
-                        size: VarInt::new(29),
-                        row_id: VarInt::new(3),
-                        record: Record {
-                            header_size: VarInt::new(7),
-                            columns: vec![T::Null, T::String(5), T::String(11), T::I16, T::I32, T::One],
-                            payload: vec![
-                                ().into(),
-                                "Earth".into(),
-                                "Terrestrial".into(),
-                                12742.into(),
-                                149600000.into(),
-                                1.into()
-                            ]
-                        }
-                    },
-                    TableLeafCell {
-                        size: VarInt::new(29),
-                        row_id: VarInt::new(4),
-                        record: Record {
-                            header_size: VarInt::new(7),
-                            columns: vec![T::Null, T::String(4), T::String(11), T::I16, T::I32, T::I8],
-                            payload: vec![
-                                ().into(),
-                                "Mars".into(),
-                                "Terrestrial".into(),
-                                6779.into(),
-                                227900000.into(),
-                                2.into()
-                            ]
-                        }
-                    },
-                    TableLeafCell {
-                        size: VarInt::new(31),
-                        row_id: VarInt::new(5),
-                        record: Record {
-                            header_size: VarInt::new(7),
-                            columns: vec![T::Null, T::String(7), T::String(9), T::I24, T::I32, T::I8],
-                            payload: vec![
-                                ().into(),
-                                "Jupiter".into(),
-                                "Gas Giant".into(),
-                                139820.into(),
-                                778500000.into(),
-                                79.into()
-                            ]
-                        }
-                    },
-                    TableLeafCell {
-                        size: VarInt::new(30),
-                        row_id: VarInt::new(6),
-                        record: Record {
-                            header_size: VarInt::new(7),
-                            columns: vec![T::Null, T::String(6), T::String(9), T::I24, T::I32, T::I8],
-                            payload: vec![
-                                ().into(),
-                                "Saturn".into(),
-                                "Gas Giant".into(),
-                                116460.into(),
-                                1433000000.into(),
-                                83.into()
-                            ]
-                        }
-                    },
-                    TableLeafCell {
-                        size: VarInt::new(32),
-                        row_id: VarInt::new(7),
-                        record: Record {
-                            header_size: VarInt::new(7),
-                            columns: vec![T::Null, T::String(6), T::String(9), T::I24, T::I48, T::I8],
-                            payload: vec![
-                                ().into(),
-                                "Uranus".into(),
-                                "Ice Giant".into(),
-                                50724.into(),
-                                2871000000.into(),
-                                27.into()
-                            ]
-                        }
-                    },
-                    TableLeafCell {
-                        size: VarInt::new(33),
-                        row_id: VarInt::new(8),
-                        record: Record {
-                            header_size: VarInt::new(7),
-                            columns: vec![T::Null, T::String(7), T::String(9), T::I24, T::I48, T::I8],
-                            payload: vec![
-                                ().into(),
-                                "Neptune".into(),
-                                "Ice Giant".into(),
-                                49244.into(),
-                                4495000000.into(),
-                                14.into()
-                            ]
-                        }
-                    },
-                ]
+                page_header,
+                cell_pointers,
+                cells
             })
         );
     }
