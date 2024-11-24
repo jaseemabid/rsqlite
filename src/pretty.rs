@@ -11,17 +11,16 @@ impl Indent {
 
 impl fmt::Display for Indent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:width$}", "", width = self.0 * 2)
+        write!(f, "{:width$}", "", width = self.0)
     }
 }
 
 impl fmt::Display for Database {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "SQLite Database")?;
-        writeln!(f, "{}Database Header", Indent::new(1))?;
-        writeln!(f, "{}", HeaderDisplay(self.db_header, 2))?;
+        writeln!(f, "SQLite Database Header")?;
+        writeln!(f, "{}", HeaderDisplay(self.db_header, 1))?;
         for (i, page) in self.pages.iter().enumerate() {
-            writeln!(f, "{}Page {}", Indent::new(1), i)?;
+            writeln!(f, "{}Page {}", Indent::new(0), i)?;
             write!(f, "{}", page)?;
         }
         Ok(())
@@ -44,45 +43,44 @@ impl fmt::Display for TableLeaf {
         // Cell pointers
         writeln!(
             f,
-            "{}Cell Pointers:               {:?}",
-            Indent::new(2),
+            "{}Cell Pointers:             {:?}",
+            Indent::new(1),
             self.cell_pointers
         )?;
 
         // Cells types, just few row for a sample
-        writeln!(f, "{}Sample Cell Types", Indent::new(2))?;
+        writeln!(f, "{}Sample Cell Types\n", Indent::new(1))?;
         for cell in self.cells.iter().take(3) {
-            writeln!(f, "{}{:?}", Indent::new(3), cell.record.columns)?;
+            writeln!(f, "{}{:?}", Indent::new(2), cell.record.columns)?;
         }
 
         // Cells as table
-        writeln!(f, "{}Cells\n", Indent::new(2))?;
-        let indent = Indent::new(3);
+        writeln!(f, "\n{}Cells\n", Indent::new(1))?;
+        let indent = Indent::new(2);
 
         // Header
-        write!(f, "{}│ {:8} │ {:8} │", indent, "Size", "Row ID")?;
+        write!(f, "{}│ {:6} │ {:6} │", indent, "Size", "Row ID")?;
         for i in 0..self.cells[0].record.columns.len() {
-            write!(f, " {:14} │", format!("Column {}", i))?;
+            write!(f, " {:10} │", format!("Col {}", i))?;
         }
         writeln!(f)?;
 
         // Separator
-        write!(f, "{}├─", indent)?;
-        write!(f, "{:─<8}─┼", "")?;
-        write!(f, "{:─<10}┼", "")?;
+        write!(f, "{}├─{:─<6}─┼{:─<8}┼", indent, "", "")?;
         for _ in 0..self.cells[0].record.columns.len() {
-            write!(f, "{:─<16}┼", "")?;
+            write!(f, "{:─<12}┼", "")?;
         }
         writeln!(f)?;
 
         // Cells
         for cell in &self.cells {
-            write!(f, "{}│ {:8} │ {:8} │", indent, cell.size.value, cell.row_id.value)?;
+            write!(f, "{}│ {:6} │ {:6} │", indent, cell.size.value, cell.row_id.value)?;
             for value in &cell.record.payload {
-                write!(f, " {} │", truncate(&value.to_string(), 14))?;
+                write!(f, " {} │", truncate(&value.to_string(), 10))?;
             }
             writeln!(f)?;
         }
+        writeln!(f, "{}", "")?;
 
         Ok(())
     }
@@ -90,8 +88,8 @@ impl fmt::Display for TableLeaf {
 
 impl fmt::Display for BTreePageHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}Page Header:", Indent::new(2))?;
-        let indent = Indent::new(3);
+        writeln!(f, "{}Page Header:", Indent::new(1))?;
+        let indent = Indent::new(2);
         writeln!(f, "{}Type:                    {:?}", indent, self.page_type)?;
         writeln!(f, "{}First freeblock:         {}", indent, self.first_freeblock)?;
         writeln!(f, "{}Number of cells:         {}", indent, self.num_cells)?;
@@ -116,7 +114,7 @@ impl fmt::Display for SerialValue {
             SerialValue::Null => write!(f, "NULL"),
             SerialValue::Number(n) => write!(f, "{}", n),
             SerialValue::Float(x) => write!(f, "{}", x),
-            SerialValue::String(s) => write!(f, "\"{}\"", s),
+            SerialValue::String(s) => write!(f, "{}", s),
             SerialValue::Blob(b) => write!(f, "<BLOB:{}>", b.len()),
             SerialValue::Reserved => write!(f, "<RESERVED>"),
         }
