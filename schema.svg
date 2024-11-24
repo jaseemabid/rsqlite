@@ -1,133 +1,134 @@
 <svg viewBox="0 0 600 880" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-        <style>
-            .container { fill: #f5f5f5; stroke: #AAA; stroke-width: 2; }
-            .page { fill: #e6f3ff; stroke: #AAA; }
-            .db-header { fill: #ffd6cc; stroke: #AAA; }
-            .header-field { fill: #ffe6e6; stroke: #AAA; height: 20px; }
-            .btree-header { fill: #d6f5d6; stroke: #AAA; }
-            .btree-field { fill: #e6f5e6; stroke: #AAA; }
-            .cell-array { fill: #e6e6ff; stroke: #AAA; }
-            .unallocated { fill: #f0f0f0; stroke: #AAA; stroke-dasharray: 5,5; }
-            .cell-content { fill: #fff2cc; stroke: #AAA; }
-            .text-large { font-family: Arial; font-size: 14px; fill: #444; }
-            .text-medium { font-family: Arial; font-size: 12px; fill: #444; }
-            .text-small { font-family: Arial; font-size: 11px; fill: #444; }
-        </style>
-    </defs>
+	<defs>
+		<style>
+			.container { fill: #f5f5f5; stroke: #AAA; stroke-width: 2; }
+			.page { fill: #e6f3ff; stroke: #AAA; }
+			.db-header { fill: #ffd6cc; stroke: #AAA; }
+			.header-field { fill: #ffe6e6; stroke: #AAA; height: 20px }
+			.btree-header { fill: #d6f5d6; stroke: #AAA; }
+			.btree-field { fill: #e6f5e6; stroke: #AAA; }
+			.cell-array { fill: #e6e6ff; stroke: #AAA; }
+			.unallocated { fill: #f0f0f0; stroke: #AAA; stroke-dasharray: 5,5; }
+			.cell-content { fill: #fff2cc; stroke: #AAA; }
 
-    <rect class="container" x="50" y="20" width="500" height="860"/>
-    <text class="text-large" x="60" y="45">SQLite Database (8192 bytes)</text>
+			.text-large { font-family: Arial; font-size: 14px; }
+			.text-medium { font-family: Arial; font-size: 12px; }
+			.text-small { font-family: Arial; font-size: 11px; }
+		</style>
+	</defs>
 
-    <rect class="page" x="70" y="60" width="460" height="470"/>
-    <text class="text-large" x="80" y="85">Page 1 (4096 bytes)</text>
+	<rect class="container" x="50" y="20" width="500" height="860"/>
+	<text class="text-large" x="60" y="45">SQLite Database (8192 bytes)</text>
 
-    <rect class="db-header" x="90" y="95" width="420" height="260"/>
-    <text class="text-medium" x="100" y="115">1. Database Header (100 bytes)</text>
+	<rect class="page" x="70" y="60" width="460" height="470"/>
+	<text class="text-large" x="80" y="85">Page 1 (4096 bytes)</text>
 
-    <rect class="header-field" x="100" y="125" width="400" height="20"/>
-    <text class="text-small" x="110" y="140">Magic Header "SQLite format 3" (16 bytes)</text>
+	<rect class="db-header" x="90" y="95" width="420" height="260"/>
+	<text class="text-medium" x="100" y="115">1. Database Header (100 bytes)</text>
 
-    <rect class="header-field" x="100" y="145" width="195" height="20"/>
-    <text class="text-small" x="110" y="160">page_size: u16</text>
+	<rect class="header-field" x="100" y="125" width="400" height="20"/>
+	<text class="text-small" x="110" y="140">Magic Header "SQLite format 3" (16 bytes)</text>
 
-    <rect class="header-field" x="305" y="145" width="195" height="20"/>
-    <text class="text-small" x="315" y="160">write_format: u8, read_format: u8</text>
+	<rect class="header-field" x="100" y="145" width="195"/>
+	<text class="text-small" x="110" y="160">page_size: u16</text>
 
-    <rect class="header-field" x="100" y="165" width="195" height="20"/>
-    <text class="text-small" x="110" y="180">reserved_bytes: u8</text>
+	<rect class="header-field" x="305" y="145" width="195"/>
+	<text class="text-small" x="315" y="160">write_format: u8, read_format: u8</text>
 
-    <rect class="header-field" x="305" y="165" width="195" height="20"/>
-    <text class="text-small" x="315" y="180">max/min_payload_fraction: u8</text>
+	<rect class="header-field" x="100" y="165" width="195"/>
+	<text class="text-small" x="110" y="180">reserved_bytes: u8</text>
 
-    <rect class="header-field" x="100" y="185" width="195" height="20"/>
-    <text class="text-small" x="110" y="200">leaf_payload_fraction: u8</text>
+	<rect class="header-field" x="305" y="165" width="195"/>
+	<text class="text-small" x="315" y="180">max/min_payload_fraction: u8</text>
 
-    <rect class="header-field" x="305" y="185" width="195" height="20"/>
-    <text class="text-small" x="315" y="200">file_change_counter: u32</text>
+	<rect class="header-field" x="100" y="185" width="195"/>
+	<text class="text-small" x="110" y="200">leaf_payload_fraction: u8</text>
 
-    <rect class="header-field" x="100" y="205" width="195" height="20"/>
-    <text class="text-small" x="110" y="220">database_page_count: u32</text>
+	<rect class="header-field" x="305" y="185" width="195"/>
+	<text class="text-small" x="315" y="200">file_change_counter: u32</text>
 
-    <rect class="header-field" x="305" y="205" width="195" height="20"/>
-    <text class="text-small" x="315" y="220">freelist_trunk_page: u32</text>
+	<rect class="header-field" x="100" y="205" width="195"/>
+	<text class="text-small" x="110" y="220">database_page_count: u32</text>
 
-    <rect class="header-field" x="100" y="225" width="195" height="20"/>
-    <text class="text-small" x="110" y="240">freelist_page_count: u32</text>
+	<rect class="header-field" x="305" y="205" width="195"/>
+	<text class="text-small" x="315" y="220">freelist_trunk_page: u32</text>
 
-    <rect class="header-field" x="305" y="225" width="195" height="20"/>
-    <text class="text-small" x="315" y="240">schema_cookie: u32</text>
+	<rect class="header-field" x="100" y="225" width="195"/>
+	<text class="text-small" x="110" y="240">freelist_page_count: u32</text>
 
-    <rect class="header-field" x="100" y="245" width="195" height="20"/>
-    <text class="text-small" x="110" y="260">schema_format: u32</text>
+	<rect class="header-field" x="305" y="225" width="195"/>
+	<text class="text-small" x="315" y="240">schema_cookie: u32</text>
 
-    <rect class="header-field" x="305" y="245" width="195" height="20"/>
-    <text class="text-small" x="315" y="260">default_page_cache: u32</text>
+	<rect class="header-field" x="100" y="245" width="195"/>
+	<text class="text-small" x="110" y="260">schema_format: u32</text>
 
-    <rect class="header-field" x="100" y="265" width="195" height="20"/>
-    <text class="text-small" x="110" y="280">autovacuum_top_root: u32</text>
+	<rect class="header-field" x="305" y="245" width="195"/>
+	<text class="text-small" x="315" y="260">default_page_cache: u32</text>
 
-    <rect class="header-field" x="305" y="265" width="195" height="20"/>
-    <text class="text-small" x="315" y="280">text_encoding: u32</text>
+	<rect class="header-field" x="100" y="265" width="195"/>
+	<text class="text-small" x="110" y="280">autovacuum_top_root: u32</text>
 
-    <rect class="header-field" x="100" y="285" width="195" height="20"/>
-    <text class="text-small" x="110" y="300">user_version: u32</text>
+	<rect class="header-field" x="305" y="265" width="195"/>
+	<text class="text-small" x="315" y="280">text_encoding: u32</text>
 
-    <rect class="header-field" x="305" y="285" width="195" height="20"/>
-    <text class="text-small" x="315" y="300">incremental_vacuum: u32</text>
+	<rect class="header-field" x="100" y="285" width="195"/>
+	<text class="text-small" x="110" y="300">user_version: u32</text>
 
-    <rect class="header-field" x="100" y="305" width="195" height="20"/>
-    <text class="text-small" x="110" y="320">application_id: u32</text>
+	<rect class="header-field" x="305" y="285" width="195"/>
+	<text class="text-small" x="315" y="300">incremental_vacuum: u32</text>
 
-    <rect class="header-field" x="305" y="305" width="195" height="20"/>
-    <text class="text-small" x="315" y="320">reserved: [u8; 20]</text>
+	<rect class="header-field" x="100" y="305" width="195"/>
+	<text class="text-small" x="110" y="320">application_id: u32</text>
 
-    <rect class="header-field" x="100" y="325" width="195" height="20"/>
-    <text class="text-small" x="110" y="340">version_valid_for: u32</text>
+	<rect class="header-field" x="305" y="305" width="195"/>
+	<text class="text-small" x="315" y="320">reserved: [u8; 20]</text>
 
-    <rect class="header-field" x="305" y="325" width="195" height="20"/>
-    <text class="text-small" x="315" y="340">sqlite_version: u32</text>
+	<rect class="header-field" x="100" y="325" width="195"/>
+	<text class="text-small" x="110" y="340">version_valid_for: u32</text>
 
-    <rect class="btree-header" x="90" y="365" width="420" height="30"/>
-    <text class="text-medium" x="100" y="385">2. B Tree Page Header (8 or 12 bytes)</text>
+	<rect class="header-field" x="305" y="325" width="195"/>
+	<text class="text-small" x="315" y="340">sqlite_version: u32</text>
 
-    <rect class="cell-array" x="90" y="405" width="420" height="30"/>
-    <text class="text-medium" x="100" y="425">3. Cell pointers (Grows downward 👇🏼)</text>
+	<rect class="btree-header" x="90" y="365" width="420" height="30"/>
+	<text class="text-medium" x="100" y="385">2. B Tree Page Header (8 or 12 bytes)</text>
 
-    <rect class="unallocated" x="90" y="445" width="420" height="30"/>
-    <text class="text-medium" x="100" y="465">4. Unallocated Space</text>
+	<rect class="cell-array" x="90" y="405" width="420" height="30"/>
+	<text class="text-medium" x="100" y="425">3. Cell pointers (Grows downward 👇🏼)</text>
 
-    <rect class="cell-content" x="90" y="485" width="420" height="30"/>
-    <text class="text-medium" x="100" y="502">5. Cell Contents (Grows 👆🏼)</text>
+	<rect class="unallocated" x="90" y="445" width="420" height="30"/>
+	<text class="text-medium" x="100" y="465">4. Unallocated Space</text>
 
-    <!-- Page 2 -->
-    <rect class="page" x="70" y="560" width="460" height="285"/>
-    <text class="text-large" x="80" y="585">Page 2 (4096 bytes)</text>
+	<rect class="cell-content" x="90" y="485" width="420" height="30"/>
+	<text class="text-medium" x="100" y="502">5. Cell Array (Grows 👆🏼)</text>
 
-    <rect class="btree-header" x="90" y="600" width="420" height="110"/>
-    <text class="text-medium" x="100" y="620">2. B-tree Page Header (8 or 12 bytes)</text>
+	<!-- Page 2 -->
+	<rect class="page" x="70" y="560" width="460" height="285"/>
+	<text class="text-large" x="80" y="585">Page 2 (4096 bytes)</text>
 
-    <rect class="btree-field" x="100" y="635" width="195" height="20"/>
-    <text class="text-small" x="110" y="650">page_type: TableLeaf (1 byte)</text>
+	<rect class="btree-header" x="90" y="600" width="420" height="110"/>
+	<text class="text-medium" x="100" y="620">2. B-tree Page Header (8 or 12 bytes)</text>
 
-    <rect class="btree-field" x="305" y="635" width="195" height="20"/>
-    <text class="text-small" x="315" y="650">first_freeblock: u16 (2 bytes)</text>
+	<rect class="btree-field" x="100" y="635" width="195" height="20"/>
+	<text class="text-small" x="110" y="650">page_type: TableLeaf (1 byte)</text>
 
-    <rect class="btree-field" x="100" y="655" width="195" height="20"/>
-    <text class="text-small" x="110" y="670">num_cells: u16 (2 bytes)</text>
+	<rect class="btree-field" x="305" y="635" width="195" height="20"/>
+	<text class="text-small" x="315" y="650">first_freeblock: u16 (2 bytes)</text>
 
-    <rect class="btree-field" x="305" y="655" width="195" height="20"/>
-    <text class="text-small" x="315" y="670">cell_content_start: u16 (2 bytes)</text>
+	<rect class="btree-field" x="100" y="655" width="195" height="20"/>
+	<text class="text-small" x="110" y="670">num_cells: u16 (2 bytes)</text>
 
-    <rect class="btree-field" x="100" y="675" width="195" height="20"/>
-    <text class="text-small" x="110" y="690">fragmented_free_bytes: u8 (1 byte)</text>
+	<rect class="btree-field" x="305" y="655" width="195" height="20"/>
+	<text class="text-small" x="315" y="670">cell_content_start: u16 (2 bytes)</text>
 
-    <rect class="cell-array" x="90" y="720" width="420" height="30"/>
-    <text class="text-medium" x="100" y="740">3. Cell Pointer Array (2 byte offsets)</text>
+	<rect class="btree-field" x="100" y="675" width="195" height="20"/>
+	<text class="text-small" x="110" y="690">fragmented_free_bytes: u8 (1 byte)</text>
 
-    <rect class="unallocated" x="90" y="760" width="420" height="30"/>
-    <text class="text-medium" x="100" y="780">4. Unallocated Space</text>
+	<rect class="cell-array" x="90" y="720" width="420" height="30"/>
+	<text class="text-medium" x="100" y="740">3. Cell Pointer Array (2 byte offsets)</text>
 
-    <rect class="cell-content" x="90" y="800" width="420" height="30"/>
-    <text class="text-medium" x="100" y="820">5. Cell Contents</text>
+	<rect class="unallocated" x="90" y="760" width="420" height="30"/>
+	<text class="text-medium" x="100" y="780">4. Unallocated Space</text>
+
+	<rect class="cell-content" x="90" y="800" width="420" height="30"/>
+	<text class="text-medium" x="100" y="820">5. Cell Array</text>
 </svg>
