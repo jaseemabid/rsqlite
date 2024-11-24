@@ -138,6 +138,8 @@ pub struct Header {
 /**
  * B tree Page Header Format
  *
+ * [Docs](https://www.sqlite.org/fileformat2.html#b_tree_pages)
+ *
  * | Offset | Size | Description                                                         |
  * |--------|------|---------------------------------------------------------------------|
  * | 0      | 1    | The one-byte flag indicating the b-tree page type:                  |
