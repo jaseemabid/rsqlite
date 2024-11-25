@@ -227,7 +227,7 @@ pub struct Record {
     //   3. Parse this temp buffer till it is exhausted.
     //   4. Varints make this code far trickier, could have been a trivial
     //      (count=N) with fixed size numbers
-    #[br(count = header_size.value - header_size.width,
+    #[br(count = header_size.value - (header_size.width as u64),
         map = |buffer: Vec<u8>| -> Vec<SerialType> {
             let mut cursor = Cursor::new(buffer);
             std::iter::from_fn(|| cursor.read_be().ok()).collect()
