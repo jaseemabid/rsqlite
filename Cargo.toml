@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.93"
 binrw = "0.14.1"
 
 [dev-dependencies]
